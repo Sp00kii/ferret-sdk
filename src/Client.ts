@@ -60,6 +60,10 @@ export type Events = {
   ready: [];
   logout: [];
 
+  // Ferret mod
+  voiceChannelJoin: [channel: Channel, userId: string];
+  voiceChannelLeave: [channel: Channel, userId: string];
+
   policyChanges: [
     policyChanges: ProtocolV1["types"]["policyChange"][],
     acknowledge: () => Promise<void>,

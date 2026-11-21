@@ -263,6 +263,31 @@ export class EventClient<
     this.setState(ConnectionState.Disconnected);
   }
 
+  // Ferret mod
+  /**
+   * Probe the socket right now instead of waiting for the next heartbeat.
+   * After sleep/wake or a network change the socket can be half-open and
+   * otherwise goes unnoticed for up to heartbeatInterval + pongTimeout.
+   * A dead socket is torn down (and reconnected) within `timeoutSeconds`.
+   * @param timeoutSeconds Maximum time to wait for the Pong
+   */
+  checkAlive(timeoutSeconds = 5): void {
+    if (!this.#socket || this.state() !== ConnectionState.Connected) return;
+
+    try {
+      this.send({ type: "Ping", data: +new Date() });
+    } catch {
+      this.disconnect();
+      return;
+    }
+
+    clearTimeout(this.#pongTimeoutReference);
+    this.#pongTimeoutReference = setTimeout(
+      () => this.disconnect(),
+      timeoutSeconds * 1e3,
+    ) as never;
+  }
+
   /**
    * Send an event to the server.
    * @param event Event

@@ -312,6 +312,22 @@ export async function handleEvent(
       batch(() => {
         if (event.users) {
           for (const user of event.users) {
+            // Ferret mod: Ready is a full snapshot, but getOrCreate() returns an
+            // already-cached user untouched. Presence/status that changed while we
+            // were disconnected (sleep, network drop) stayed stale until a reload.
+            if (
+              client.users.has(user._id) &&
+              !client.users.isPartial(user._id)
+            ) {
+              client.users.updateUnderlyingObject(
+                user._id,
+                Object.assign(
+                  { online: false, status: undefined },
+                  hydrate("user", user, client, false),
+                ) as never,
+              );
+            }
+
             const u = client.users.getOrCreate(user._id, user);
 
             if (u.relationship === "User") {
@@ -339,6 +355,12 @@ export async function handleEvent(
         }
 
         if (event.voice_states) {
+          // Ferret mod: calls that ended while we were disconnected are simply
+          // absent from the snapshot, so clear every channel before refilling.
+          client.channels.forEach((channel) =>
+            channel.voiceParticipants.clear(),
+          );
+
           for (const state of event.voice_states) {
             const channel = client.channels.get(state.id);
             if (channel) {
@@ -1072,7 +1094,7 @@ export async function handleEvent(
           event.state.id,
           new VoiceParticipant(client, event.state),
         );
-        // todo: event
+        client.emit("voiceChannelJoin", channel, event.state.id); // Ferret mod
       }
       break;
     }
@@ -1080,12 +1102,26 @@ export async function handleEvent(
       const channel = client.channels.getOrPartial(event.id);
       if (channel) {
         channel.voiceParticipants.delete(event.user);
-        // todo: event
+        client.emit("voiceChannelLeave", channel, event.user); // Ferret mod
       }
       break;
     }
     case "VoiceChannelMove": {
-      // todo
+      // Ferret mod: previously ignored, which left the user listed in the old channel
+      const from = client.channels.getOrPartial(event.from);
+      if (from) {
+        from.voiceParticipants.delete(event.user);
+        client.emit("voiceChannelLeave", from, event.user);
+      }
+
+      const to = client.channels.getOrPartial(event.to);
+      if (to) {
+        to.voiceParticipants.set(
+          event.user,
+          new VoiceParticipant(client, event.state),
+        );
+        client.emit("voiceChannelJoin", to, event.user);
+      }
       break;
     }
     case "UserVoiceStateUpdate": {
