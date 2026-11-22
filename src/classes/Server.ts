@@ -735,6 +735,59 @@ export class Server {
     this.#synced = undefined;
   }
 
+  // Ferret mod
+  /**
+   * Re-check who is online in this server and update already-loaded users in
+   * place. Presence events can be missed (when a Stoat events node restarts
+   * it marks its users offline without telling anyone), and syncMembers() /
+   * fetchMembers() never update users that are already cached, so only a
+   * full reload corrected the member list.
+   */
+  async refreshPresence(): Promise<void> {
+    const client = this.#collection.client;
+    const data = await client.api.get(`/servers/${this.id as ""}/members`, {
+      exclude_offline: true,
+    });
+    const online = new Set<string>();
+
+    batch(() => {
+      for (let i = 0; i < data.users.length; i++) {
+        const user = data.users[i];
+        if (!user.online) continue;
+        online.add(user._id);
+
+        if (client.users.has(user._id) && !client.users.isPartial(user._id)) {
+          client.users.updateUnderlyingObject(
+            user._id,
+            Object.assign(
+              { status: undefined },
+              hydrate("user", user, client, false),
+            ) as never,
+          );
+        } else {
+          const hydrated = client.users.hydrateIfNotHas(user._id, user);
+          if (hydrated) client.users.addHydratedUser(hydrated);
+        }
+
+        const member = client.serverMembers.hydrateIfNotHas(
+          data.members[i]._id,
+          data.members[i],
+        );
+        if (member) client.serverMembers.addHydratedServerMember(member);
+      }
+
+      // everyone else in this server that we still show as online isn't
+      for (const member of client.serverMembers.values()) {
+        if (member.id.server !== this.id) continue;
+        const userId = member.id.user;
+        if (online.has(userId) || userId === client.user?.id) continue;
+        if (client.users.get(userId)?.online) {
+          client.users.updateUnderlyingObject(userId, "online", false as never);
+        }
+      }
+    });
+  }
+
   /**
    * Fetch a server's members
    * @returns List of the server's members and their user objects
