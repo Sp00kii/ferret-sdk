@@ -410,6 +410,10 @@ export async function handleEvent(
 
           if (event.user) {
             client.users.getOrCreate(event.user._id, event.user);
+          } else if (!event.webhook && !client.users.has(event.author)) {
+            // Ferret: someone the app hasn't loaded yet (often a bot): load
+            // them so the message shows with a name and picture
+            void client.users.fetch(event.author).catch(() => {});
           }
 
           delete event.member;

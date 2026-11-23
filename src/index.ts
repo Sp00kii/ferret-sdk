@@ -10,3 +10,4 @@ export { ServerFlags } from "./hydration/server.js";
 export { UserBadges, UserFlags } from "./hydration/user.js";
 export * from "./lib/regex.js";
 export * from "./permissions/definitions.js";
+export { rolePreview, setRolePreview } from "./permissions/calculator.js"; // Ferret

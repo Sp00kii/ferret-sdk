@@ -1,3 +1,5 @@
+import { createSignal } from "solid-js";
+
 import { Channel, Client, Server, ServerMember } from "../index.js";
 
 import {
@@ -19,6 +21,32 @@ export function bitwiseAndEq(a: bigint, ...b: bigint[]): boolean {
 }
 
 /**
+ * Ferret: "view server as role". While set, your permissions in that one
+ * server are worked out as if you only had these roles (an empty list means
+ * just the default @everyone permissions), even if you own it. Only changes
+ * what your app shows; the server still checks your real permissions.
+ */
+const [rolePreview, setRolePreview] = createSignal<
+  { serverId: string; roleIds: string[] } | undefined
+>();
+export { rolePreview, setRolePreview };
+
+/** A pretend member with only the previewed roles, for this server */
+function previewMember(server: Server | undefined): ServerMember | undefined {
+  const preview = rolePreview();
+  if (!server || !preview || preview.serverId !== server.id) return undefined;
+  const orderedRoles = preview.roleIds
+    .map((id) => server.roles?.get(id))
+    .filter((role) => role)
+    .sort((a, b) => b!.rank! - a!.rank!);
+  return {
+    roles: preview.roleIds,
+    orderedRoles,
+    timeout: null,
+  } as unknown as ServerMember;
+}
+
+/**
  * Calculate permissions against a given object
  * @param target Target object to check permissions against
  * @param options Additional options to use when calculating
@@ -33,6 +61,18 @@ export function calculatePermission(
     member?: ServerMember;
   },
 ): bigint {
+  // Ferret: previewing this server as a role
+  if (!options?.member) {
+    const server =
+      target instanceof Server
+        ? target
+        : target.type === "TextChannel"
+          ? target.server
+          : undefined;
+    const member = previewMember(server);
+    if (member) options = { ...options, member };
+  }
+
   const user = options?.member ? options?.member.user : client.user;
   if (user?.privileged) {
     return Permission.GrantAllSafe;
